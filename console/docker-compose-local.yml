@@ -38,8 +38,7 @@ services:
       - "3000:80"  # Exposes the UI on localhost:3000
     environment:
       - PG_CONSOLE_API_URL=http://localhost:8080/api/v1
-      #- PG_CONSOLE_AUTHORIZATION_TOKEN=${AUTH_TOKEN}
-      - PG_CONSOLE_AUTHORIZATION_TOKEN=test_token_123
+      - PG_CONSOLE_AUTHORIZATION_TOKEN=${AUTH_TOKEN}
     networks:
       - autobase
 
