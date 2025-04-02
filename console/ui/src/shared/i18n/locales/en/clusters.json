@@ -10,7 +10,7 @@
   "postgresVersion": "Postgres version",
   "location": "Location",
   "noPostgresClustersTitle": "No Postgres Clusters",
-  "noPostgresClustersLine1": "Deploy Postgres to supported cloud providers: AWS, GCP, Azure, DigitalOcean and Hetzner Cloud. All components are installed within your cloud account.\nOr Install on your existing resources, whether it's any other cloud or your own data center.\n\nTo get started, just click “{{createCluster}}” button.",
+  "noPostgresClustersLine1": "Deploy Postgres to supported cloud providers: AWS, GCP, Azure, DigitalOcean and Hetzner Cloud. All components are installed within your cloud account.\nOr Install on your existing resources, whether it's any other cloud or your own data center.\n\nTo get started, just click "{{createCluster}}" button.",
   "selectDeploymentDestination": "Select deployment destination",
   "clustersSearchPlaceholder": "Enter property name or value",
   "selectCloudRegion": "Select cloud region",
@@ -66,5 +66,6 @@
   "backups": "Backups",
   "useDefinedSecret": "Use defined secret?",
   "deleteClusterModalHeader": "Delete {{clusterName}}?",
-  "deleteClusterModalBody": "Are you sure you want to delete cluster \"{{clusterName}}\"?"
+  "deleteClusterModalBody": "Are you sure you want to delete cluster \"{{clusterName}}\"?",
+  "hetznerLocationWarning": "For Hetzner, ensure the selected location supports both servers and volumes"
 }

@@ -15,16 +15,33 @@ const cloudFormSchema = (t: TFunction) =>
       ),
     [CLUSTER_FORM_FIELD_NAMES.REGION_CONFIG]: yup
       .mixed()
-      .when(CLUSTER_FORM_FIELD_NAMES.PROVIDER, ([provider], schema) =>
-        provider?.code !== PROVIDERS.LOCAL
-          ? yup
-              .object({
-                code: yup.string(),
-                location: yup.string(),
-              })
-              .required()
-          : schema.notRequired(),
-      ),
+      .when(CLUSTER_FORM_FIELD_NAMES.PROVIDER, ([provider], schema) => {
+        if (provider?.code === PROVIDERS.LOCAL) {
+          return schema.notRequired();
+        }
+        
+        // Special validation message for Hetzner provider
+        if (provider?.code === PROVIDERS.HETZNER) {
+          return yup
+            .object({
+              code: yup.string(),
+              location: yup.string(),
+            })
+            .required()
+            .test(
+              'hetzner-location-warning',
+              t('hetznerLocationWarning', { defaultValue: 'For Hetzner, ensure the selected location supports both servers and volumes' }),
+              () => true // Always passes but shows the message as a reminder
+            );
+        }
+        
+        return yup
+          .object({
+            code: yup.string(),
+            location: yup.string(),
+          })
+          .required();
+      }),
     [CLUSTER_FORM_FIELD_NAMES.INSTANCE_TYPE]: yup
       .mixed()
       .when(CLUSTER_FORM_FIELD_NAMES.PROVIDER, ([provider], schema) =>
