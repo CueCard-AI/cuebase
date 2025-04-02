@@ -1,10 +1,11 @@
 import { FC, SyntheticEvent } from 'react';
 import { TabContext, TabList, TabPanel } from '@mui/lab';
 import { CLUSTER_FORM_FIELD_NAMES } from '@widgets/cluster-form/model/constants.ts';
-import { Box, Divider, Stack, Tab, Typography } from '@mui/material';
+import { Box, Divider, Stack, Tab, Typography, Alert } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import { Controller, useFormContext } from 'react-hook-form';
 import ClusterFormRegionConfigBox from '@widgets/cluster-form/ui/ClusterFormRegionConfigBox.tsx';
+import { PROVIDERS } from '@shared/config/constants.ts';
 
 const CloudFormRegionBlock: FC = () => {
   const { t } = useTranslation('clusters');
@@ -14,6 +15,7 @@ const CloudFormRegionBlock: FC = () => {
   const regionWatch = watch(CLUSTER_FORM_FIELD_NAMES.REGION);
 
   const regions = watchProvider?.cloud_regions ?? [];
+  const isHetznerProvider = watchProvider?.code === PROVIDERS.HETZNER;
 
   const handleRegionChange =
     (onChange: (...event: never[]) => void) => (e: SyntheticEvent<Element, Event>, value: string) => {
@@ -33,6 +35,11 @@ const CloudFormRegionBlock: FC = () => {
       <Typography fontWeight="bold" marginBottom="8px">
         {t('selectCloudRegion')}
       </Typography>
+      {isHetznerProvider && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          On Hetzner Cloud, volumes must be created in the same location as servers. Select a location that supports both resources.
+        </Alert>
+      )}
       <TabContext value={regionWatch as string}>
         <Controller
           control={control}
