@@ -1,0 +1,102 @@
+---
+# CueCard custom routing + caching stack on top of an autobase-deployed
+# Postgres cluster.
+#
+# Layers added per node in postgres_cluster:
+#   - memcached (localhost-only, 1 GB)
+#   - pgpool2  (port 6431, query cache via local memcached, master/slave + LB)
+#   - haproxy  (custom 6433/6434/6435 frontends with Patroni-aware routing)
+#
+# Plus a Patroni callback that keeps pgpool's backend list in sync with the
+# Patroni leader on every role change.
+#
+# Run AFTER deploy_pgcluster.yml has provisioned the base cluster.
+#
+# Usage:
+#   ansible-playbook custom_stack.yml \
+#     -e "patroni_cluster_name=pg18-sandbox patroni_restapi_protocol=http"
+
+- name: vitabaks.autobase.custom_stack | Deploy custom routing + caching stack
+  hosts: postgres_cluster
+  become: true
+  become_method: sudo
+  gather_facts: true
+  any_errors_fatal: true
+  environment: "{{ proxy_env | default({}) }}"
+
+  pre_tasks:
+    - name: custom_stack | Validate Patroni cluster reachable
+      ansible.builtin.uri:
+        url: "{{ patroni_restapi_protocol | default('http') }}://{{ patroni_restapi_connect_addr | default(inventory_hostname) }}:{{ patroni_restapi_port | default('8008') }}/leader"
+        status_code: [200, 503]
+      register: patroni_local_status
+      changed_when: false
+      failed_when: false
+      tags: always
+
+    - name: custom_stack | Determine cluster leader
+      ansible.builtin.set_fact:
+        is_leader: "{{ patroni_local_status.status | default(0) == 200 }}"
+      tags: always
+
+    - name: custom_stack | Pick leader IP (run on first host only)
+      ansible.builtin.set_fact:
+        cluster_leader_ip: "{{ item }}"
+      when: hostvars[item].is_leader | default(false)
+      loop: "{{ groups['postgres_cluster'] }}"
+      run_once: true
+      tags: always
+
+    - name: custom_stack | Fail if no leader detected
+      ansible.builtin.fail:
+        msg: "No Patroni leader found in cluster. Aborting custom_stack deploy."
+      when: cluster_leader_ip is not defined
+      run_once: true
+      tags: always
+
+    - name: custom_stack | Show topology
+      ansible.builtin.debug:
+        msg:
+          - "Leader: {{ cluster_leader_ip }}"
+          - "Replicas: {{ groups['postgres_cluster'] | reject('equalto', cluster_leader_ip) | list }}"
+          - "Cached-read pinned to: {{ haproxy_custom_cached_read_node | default(groups['postgres_cluster'][2] | default(groups['postgres_cluster'][-1])) }}"
+      run_once: true
+      tags: always
+
+  roles:
+    - role: memcached
+      vars:
+        memcached_install: true
+      tags: memcached, custom_stack
+
+    - role: pgpool2
+      vars:
+        pgpool2_install: true
+        current_leader_ip: "{{ cluster_leader_ip }}"
+      tags: pgpool2, custom_stack
+
+    - role: haproxy_custom
+      vars:
+        haproxy_custom_install: true
+      tags: haproxy_custom, custom_stack
+
+  post_tasks:
+    - name: custom_stack | Open firewall ports for the new endpoints
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "{{ item }}"
+        jump: ACCEPT
+        comment: "custom_stack: {{ item }}"
+      loop:
+        - "{{ haproxy_custom_write_port | default(6433) }}"
+        - "{{ haproxy_custom_read_port | default(6434) }}"
+        - "{{ haproxy_custom_cached_read_port | default(6435) }}"
+        - "{{ pgpool2_port | default(6431) }}"
+      tags: firewall, custom_stack
+
+    - name: custom_stack | Run callback once to seed pgpool with current leader
+      ansible.builtin.command: "{{ pgpool2_callback_script | default('/usr/local/bin/update_pgpool_backends.sh') }} on_start {{ 'master' if is_leader else 'replica' }} {{ patroni_cluster_name }}"
+      changed_when: true
+      failed_when: false
+      tags: custom_stack

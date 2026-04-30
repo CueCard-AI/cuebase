@@ -1,0 +1,67 @@
+#------------------------------------------------------------------------------
+# {{ ansible_managed }}
+# Identical on every node — managed by Autobase haproxy_custom role.
+#------------------------------------------------------------------------------
+
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+
+defaults
+    log     global
+    mode    tcp
+    option  tcplog
+    timeout connect {{ haproxy_custom_timeout_connect }}
+    timeout client  {{ haproxy_custom_timeout_client }}
+    timeout server  {{ haproxy_custom_timeout_server }}
+
+#------------------------------------------------------------------------------
+# WRITE endpoint (port {{ haproxy_custom_write_port }}) — routes to Patroni primary
+#------------------------------------------------------------------------------
+frontend postgres_write_frontend
+    bind *:{{ haproxy_custom_write_port }}{% if haproxy_custom_accept_proxy %} accept-proxy{% endif %}
+
+    option tcplog
+    default_backend postgres_write_backend
+
+backend postgres_write_backend
+    option httpchk GET /primary
+    http-check expect status 200
+{% for host in groups['postgres_cluster'] %}
+    server {{ hostvars[host].hostname | default(host) }} {{ host }}:5432 check port {{ haproxy_custom_patroni_port }} inter {{ haproxy_custom_check_interval }} fall {{ haproxy_custom_check_fall }} rise {{ haproxy_custom_check_rise }}
+{% endfor %}
+
+#------------------------------------------------------------------------------
+# READ endpoint (port {{ haproxy_custom_read_port }}) — round-robin across replicas
+#------------------------------------------------------------------------------
+frontend postgres_read_frontend
+    bind *:{{ haproxy_custom_read_port }}{% if haproxy_custom_accept_proxy %} accept-proxy{% endif %}
+
+    option tcplog
+    default_backend postgres_read_backend
+
+backend postgres_read_backend
+    option httpchk GET /replica
+    http-check expect status 200
+    balance roundrobin
+{% for host in groups['postgres_cluster'] %}
+    server {{ hostvars[host].hostname | default(host) }} {{ host }}:5432 check port {{ haproxy_custom_patroni_port }} inter {{ haproxy_custom_check_interval }} fall {{ haproxy_custom_check_fall }} rise {{ haproxy_custom_check_rise }}
+{% endfor %}
+
+#------------------------------------------------------------------------------
+# CACHED READ endpoint (port {{ haproxy_custom_cached_read_port }}) — pinned to one pgpool node
+#------------------------------------------------------------------------------
+frontend postgres_cached_read_frontend
+    bind *:{{ haproxy_custom_cached_read_port }}{% if haproxy_custom_accept_proxy %} accept-proxy{% endif %}
+
+    option tcplog
+    default_backend postgres_cached_read_backend
+
+backend postgres_cached_read_backend
+    server pgpool_cache {{ haproxy_custom_cached_read_node }}:{{ haproxy_custom_pgpool_port }} check

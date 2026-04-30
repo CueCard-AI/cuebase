@@ -1,0 +1,13 @@
+---
+- name: Restart haproxy_custom
+  ansible.builtin.systemd:
+    name: haproxy
+    state: restarted
+    enabled: true
+  listen: restart haproxy
+
+- name: Reload haproxy_custom
+  ansible.builtin.systemd:
+    name: haproxy
+    state: reloaded
+  listen: reload haproxy

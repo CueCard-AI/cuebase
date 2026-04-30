@@ -1,0 +1,11 @@
+---
+# Memcached defaults for the CueCard custom stack
+memcached_install: false # set true via playbook
+memcached_port: 11211
+memcached_listen: "127.0.0.1" # localhost-only; cluster traffic stays on local pgpool
+memcached_memory_mb: 1024
+memcached_threads: 4
+memcached_max_conn: 1024
+memcached_user: memcache
+memcached_log_file: /var/log/memcached.log
+memcached_pid_file: /var/run/memcached/memcached.pid

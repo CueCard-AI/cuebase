@@ -1,0 +1,57 @@
+---
+# Pgpool II defaults for the CueCard custom stack
+pgpool2_install: false # set true via playbook
+pgpool2_port: 6431 # 6431 to avoid conflict with PgBouncer (6432)
+pgpool2_listen: "*"
+
+# Connection pool sizing (matches staging)
+pgpool2_num_init_children: 25
+pgpool2_max_pool: 4
+pgpool2_child_life_time: 300
+
+# Auth (uses Patroni superuser for health checks; pool_passwd populated from PG users)
+pgpool2_health_check_user: "{{ patroni_superuser_username | default('postgres') }}"
+pgpool2_health_check_password: "{{ patroni_superuser_password }}"
+pgpool2_health_check_database: postgres
+pgpool2_health_check_period: 30
+pgpool2_health_check_timeout: 20
+pgpool2_health_check_max_retries: 3
+pgpool2_health_check_retry_delay: 1
+pgpool2_authentication_timeout: 60
+
+# Query cache (memcached-backed)
+pgpool2_cache_enabled: true
+pgpool2_cache_total_size: "1024MB"
+pgpool2_cache_max_num_cache: 100000
+pgpool2_cache_expire: 900 # seconds
+pgpool2_cache_maxcache: "10MB"
+pgpool2_cache_block_size: "6MB"
+pgpool2_cache_blacklist_tables: "pgbench_accounts"
+pgpool2_cache_whitelist_tables: ""
+pgpool2_cache_oiddir: /var/log/pgpool2/oiddir
+pgpool2_memcached_host: "localhost"
+pgpool2_memcached_port: 11211
+
+# Read-write split / load balancing
+pgpool2_load_balance_mode: true
+pgpool2_master_slave_mode: true
+pgpool2_master_slave_sub_mode: stream
+pgpool2_failover_on_backend_error: false # Patroni handles failover
+
+# Debug logging (matches staging)
+pgpool2_log_destination: stderr
+pgpool2_log_statement: true
+pgpool2_log_connections: true
+pgpool2_log_per_node_statement: true
+pgpool2_log_min_messages: debug1
+pgpool2_log_error_verbosity: verbose
+pgpool2_debug_level: 2
+
+# Backend list — populated dynamically (postgres_cluster group)
+# weight=0 (DISALLOW_TO_FAILOVER) for current Patroni leader, weight=1 for replicas
+pgpool2_backend_hosts: "{{ groups['postgres_cluster'] }}"
+pgpool2_backend_pg_port: 5432
+
+# Patroni callback paths
+pgpool2_callback_script: /usr/local/bin/update_pgpool_backends.sh
+pgpool2_state_file: /var/run/pgpool2/current_leader

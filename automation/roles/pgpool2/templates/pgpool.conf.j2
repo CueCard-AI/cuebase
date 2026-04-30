@@ -1,0 +1,111 @@
+#------------------------------------------------------------------------------
+# {{ ansible_managed }}
+# Pgpool II — managed by Autobase custom_stack role
+# Backend list is rewritten on Patroni role change by {{ pgpool2_callback_script }}
+#------------------------------------------------------------------------------
+
+#------------------------------------------------------------------------------
+# CONNECTIONS
+#------------------------------------------------------------------------------
+listen_addresses = '{{ pgpool2_listen }}'
+port = {{ pgpool2_port }}
+socket_dir = '/var/run/postgresql'
+
+ssl = off
+ssl_cert = ''
+ssl_key = ''
+ssl_ca_cert = ''
+
+#------------------------------------------------------------------------------
+# POOLS
+#------------------------------------------------------------------------------
+num_init_children = {{ pgpool2_num_init_children }}
+max_pool = {{ pgpool2_max_pool }}
+child_life_time = {{ pgpool2_child_life_time }}
+
+#------------------------------------------------------------------------------
+# BACKENDS
+# Initial layout — index 0 is the current Patroni leader (weight=0,
+# DISALLOW_TO_FAILOVER). Rewritten by {{ pgpool2_callback_script }} on
+# leadership change.
+#------------------------------------------------------------------------------
+{% set leader = current_leader_ip | default(groups['postgres_cluster'][0]) %}
+{% set replicas = groups['postgres_cluster'] | reject('equalto', leader) | list %}
+backend_hostname0 = '{{ leader }}'
+backend_port0 = {{ pgpool2_backend_pg_port }}
+backend_weight0 = 0
+backend_flag0 = 'DISALLOW_TO_FAILOVER'
+backend_application_name0 = 'primary'
+{% for r in replicas %}
+
+backend_hostname{{ loop.index }} = '{{ r }}'
+backend_port{{ loop.index }} = {{ pgpool2_backend_pg_port }}
+backend_weight{{ loop.index }} = 1
+backend_flag{{ loop.index }} = 'ALLOW_TO_FAILOVER'
+backend_application_name{{ loop.index }} = 'replica{{ loop.index }}'
+{% endfor %}
+
+#------------------------------------------------------------------------------
+# AUTHENTICATION
+#------------------------------------------------------------------------------
+enable_pool_hba = on
+pool_passwd = '/etc/pgpool2/pool_passwd'
+authentication_timeout = {{ pgpool2_authentication_timeout }}
+
+#------------------------------------------------------------------------------
+# QUERY CACHE
+#------------------------------------------------------------------------------
+memory_cache_enabled = {{ 'on' if pgpool2_cache_enabled else 'off' }}
+memqcache_method = 'memcached'
+memqcache_memcached_host = '{{ pgpool2_memcached_host }}'
+memqcache_memcached_port = {{ pgpool2_memcached_port }}
+memqcache_total_size = {{ pgpool2_cache_total_size }}
+memqcache_max_num_cache = {{ pgpool2_cache_max_num_cache }}
+memqcache_expire = {{ pgpool2_cache_expire }}
+memqcache_auto_cache_invalidation = off
+memqcache_maxcache = {{ pgpool2_cache_maxcache }}
+memqcache_cache_block_size = {{ pgpool2_cache_block_size }}
+memqcache_oiddir = '{{ pgpool2_cache_oiddir }}'
+white_memqcache_table_list = '{{ pgpool2_cache_whitelist_tables }}'
+black_memqcache_table_list = '{{ pgpool2_cache_blacklist_tables }}'
+
+#------------------------------------------------------------------------------
+# LOAD BALANCING
+#------------------------------------------------------------------------------
+load_balance_mode = {{ 'on' if pgpool2_load_balance_mode else 'off' }}
+ignore_leading_white_space = on
+white_function_list = ''
+black_function_list = 'currval,lastval,nextval,setval,now,timeofday'
+
+#------------------------------------------------------------------------------
+# MASTER/SLAVE (read/write split)
+#------------------------------------------------------------------------------
+master_slave_mode = {{ 'on' if pgpool2_master_slave_mode else 'off' }}
+master_slave_sub_mode = '{{ pgpool2_master_slave_sub_mode }}'
+
+#------------------------------------------------------------------------------
+# HEALTH CHECK
+#------------------------------------------------------------------------------
+health_check_period = {{ pgpool2_health_check_period }}
+health_check_timeout = {{ pgpool2_health_check_timeout }}
+health_check_user = '{{ pgpool2_health_check_user }}'
+health_check_password = '{{ pgpool2_health_check_password }}'
+health_check_database = '{{ pgpool2_health_check_database }}'
+health_check_max_retries = {{ pgpool2_health_check_max_retries }}
+health_check_retry_delay = {{ pgpool2_health_check_retry_delay }}
+
+#------------------------------------------------------------------------------
+# FAILOVER
+#------------------------------------------------------------------------------
+failover_on_backend_error = {{ 'on' if pgpool2_failover_on_backend_error else 'off' }}
+
+#------------------------------------------------------------------------------
+# LOGGING
+#------------------------------------------------------------------------------
+log_destination = '{{ pgpool2_log_destination }}'
+log_statement = {{ 'on' if pgpool2_log_statement else 'off' }}
+log_connections = {{ 'on' if pgpool2_log_connections else 'off' }}
+log_min_messages = {{ pgpool2_log_min_messages }}
+log_per_node_statement = {{ 'on' if pgpool2_log_per_node_statement else 'off' }}
+debug_level = {{ pgpool2_debug_level }}
+log_error_verbosity = {{ pgpool2_log_error_verbosity }}

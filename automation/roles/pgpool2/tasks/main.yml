@@ -1,0 +1,130 @@
+---
+- name: pgpool2 | Install package
+  ansible.builtin.apt:
+    name: pgpool2
+    state: present
+    update_cache: true
+  register: apt_pgpool2
+  until: apt_pgpool2 is success
+  retries: 3
+  delay: 5
+  environment: "{{ proxy_env | default({}) }}"
+  tags: pgpool2, custom_stack
+
+- name: pgpool2 | Ensure required dirs
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "/etc/pgpool2", mode: "0755" }
+    - { path: "/var/run/pgpool2", mode: "0755" }
+    - { path: "/var/log/pgpool2", mode: "0755" }
+    - { path: "{{ pgpool2_cache_oiddir }}", mode: "0755" }
+  tags: pgpool2, custom_stack
+
+- name: pgpool2 | Determine current Patroni leader
+  ansible.builtin.uri:
+    url: "http://{{ patroni_restapi_connect_addr | default(inventory_hostname) }}:{{ patroni_restapi_port | default('8008') }}/leader"
+    status_code: [200, 503]
+  register: patroni_local_status
+  changed_when: false
+  failed_when: false
+  tags: pgpool2, custom_stack
+
+- name: pgpool2 | Build "primary" group from Patroni leader
+  ansible.builtin.add_host:
+    name: "{{ item }}"
+    groups: pgpool_primary
+  when: hostvars[item].patroni_local_status.status | default(0) == 200
+  loop: "{{ groups['postgres_cluster'] }}"
+  changed_when: false
+  tags: pgpool2, custom_stack
+
+- name: pgpool2 | Discover leader IP
+  ansible.builtin.set_fact:
+    current_leader_ip: "{{ groups['pgpool_primary'][0] | default(groups['postgres_cluster'][0]) }}"
+  tags: pgpool2, custom_stack
+
+- name: pgpool2 | Render pgpool.conf
+  ansible.builtin.template:
+    src: pgpool.conf.j2
+    dest: /etc/pgpool2/pgpool.conf
+    owner: postgres
+    group: postgres
+    mode: "0644"
+  notify: reload pgpool2
+  tags: pgpool2, custom_stack
+
+- name: pgpool2 | Render pcp.conf
+  ansible.builtin.template:
+    src: pcp.conf.j2
+    dest: /etc/pgpool2/pcp.conf
+    owner: postgres
+    group: postgres
+    mode: "0600"
+  when: pgpool2_pcp_user is defined
+  notify: reload pgpool2
+  tags: pgpool2, custom_stack
+
+- name: pgpool2 | Render pool_hba.conf
+  ansible.builtin.template:
+    src: pool_hba.conf.j2
+    dest: /etc/pgpool2/pool_hba.conf
+    owner: postgres
+    group: postgres
+    mode: "0640"
+  notify: reload pgpool2
+  tags: pgpool2, custom_stack
+
+- name: pgpool2 | Generate pool_passwd from PG users
+  # pgpool's pg_md5 generates AES-encrypted entries usable when
+  # password_encryption = scram-sha-256. We seed it with the superuser
+  # so health checks and admin connections work.
+  ansible.builtin.shell: |
+    set -e
+    : > /etc/pgpool2/pool_passwd
+    chmod 0600 /etc/pgpool2/pool_passwd
+    chown postgres:postgres /etc/pgpool2/pool_passwd
+    pg_md5 -m -u {{ pgpool2_health_check_user | quote }} \
+      --config-file=/etc/pgpool2/pgpool.conf \
+      {{ pgpool2_health_check_password | quote }}
+  args:
+    creates: /etc/pgpool2/pool_passwd
+  no_log: true
+  tags: pgpool2, custom_stack
+
+- name: pgpool2 | Install Patroni leader-tracking callback script
+  ansible.builtin.copy:
+    src: update_pgpool_backends.sh
+    dest: "{{ pgpool2_callback_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+  tags: pgpool2, custom_stack
+
+- name: pgpool2 | Wire callback into Patroni
+  # Adds on_role_change/on_start/on_restart/on_reload callbacks to patroni.yml.
+  # The autobase Patroni role doesn't manage callbacks, so we patch in place
+  # using a marker so re-runs are idempotent.
+  ansible.builtin.blockinfile:
+    path: /etc/patroni/patroni.yml
+    marker: "# {mark} ANSIBLE MANAGED — pgpool callbacks"
+    insertafter: '^postgresql:'
+    block: |2
+        callbacks:
+          on_start: {{ pgpool2_callback_script }}
+          on_restart: {{ pgpool2_callback_script }}
+          on_role_change: {{ pgpool2_callback_script }}
+          on_reload: {{ pgpool2_callback_script }}
+  notify: reload patroni
+  tags: pgpool2, custom_stack
+
+- name: pgpool2 | Enable and start service
+  ansible.builtin.systemd:
+    name: pgpool2
+    state: started
+    enabled: true
+  tags: pgpool2, custom_stack

@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+# memcached default config — managed by Autobase custom_stack role
+-d
+logfile {{ memcached_log_file }}
+-m {{ memcached_memory_mb }}
+-p {{ memcached_port }}
+-u {{ memcached_user }}
+-l {{ memcached_listen }}
+-l ::1
+-c {{ memcached_max_conn }}
+-t {{ memcached_threads }}
+-U 0
+-P {{ memcached_pid_file }}

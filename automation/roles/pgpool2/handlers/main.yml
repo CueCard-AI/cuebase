@@ -1,0 +1,18 @@
+---
+- name: Restart pgpool2
+  ansible.builtin.systemd:
+    name: pgpool2
+    state: restarted
+    enabled: true
+  listen: restart pgpool2
+
+- name: Reload pgpool2
+  ansible.builtin.command: pgpool reload
+  listen: reload pgpool2
+  changed_when: true
+
+- name: Reload patroni
+  ansible.builtin.systemd:
+    name: patroni
+    state: reloaded
+  listen: reload patroni

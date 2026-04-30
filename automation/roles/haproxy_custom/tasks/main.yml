@@ -1,0 +1,39 @@
+---
+- name: haproxy_custom | Install package
+  ansible.builtin.apt:
+    name: haproxy
+    state: present
+    update_cache: true
+  register: apt_haproxy
+  until: apt_haproxy is success
+  retries: 3
+  delay: 5
+  environment: "{{ proxy_env | default({}) }}"
+  tags: haproxy_custom, custom_stack
+
+- name: haproxy_custom | Allow non-local bind (lets HAProxy bind to VIPs/cluster IPs)
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_nonlocal_bind
+    value: "1"
+    sysctl_set: true
+    state: present
+    reload: true
+  tags: haproxy_custom, custom_stack
+
+- name: haproxy_custom | Render /etc/haproxy/haproxy.cfg
+  ansible.builtin.template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "haproxy -c -f %s"
+  notify: reload haproxy
+  tags: haproxy_custom, custom_stack
+
+- name: haproxy_custom | Enable and start service
+  ansible.builtin.systemd:
+    name: haproxy
+    state: started
+    enabled: true
+  tags: haproxy_custom, custom_stack

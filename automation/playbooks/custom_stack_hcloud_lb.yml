@@ -1,0 +1,98 @@
+---
+# Update the Hetzner Cloud Load Balancer(s) provisioned by autobase to point
+# at the new HAProxy endpoints (6433/6434/6435) instead of the default
+# Postgres direct port (5432).
+#
+# The autobase cloud_resources/hetzner role creates two LBs by default:
+#   - {{ patroni_cluster_name }}-primary   (master endpoint, port 5432 -> 5432)
+#   - {{ patroni_cluster_name }}-replica   (replicas endpoint, port 5432 -> 5432)
+#
+# We rewrite the services on each LB so that:
+#   primary LB exposes 6433/6434/6435 mapped to HAProxy on each node
+#   replica LB stays on 5432->5432 for direct replica access (or remove it)
+#
+# Run after custom_stack.yml. Requires HCLOUD_API_TOKEN env var.
+
+- name: vitabaks.autobase.custom_stack | Update Hetzner LBs to front HAProxy
+  hosts: localhost
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    hcloud_api_token: "{{ lookup('ansible.builtin.env', 'HCLOUD_API_TOKEN') }}"
+    primary_lb_name: "{{ patroni_cluster_name }}-primary"
+    write_port: "{{ haproxy_custom_write_port | default(6433) }}"
+    read_port: "{{ haproxy_custom_read_port | default(6434) }}"
+    cached_read_port: "{{ haproxy_custom_cached_read_port | default(6435) }}"
+    patroni_health_port: "{{ patroni_restapi_port | default(8008) }}"
+
+  tasks:
+    - name: hcloud_lb | Verify token present
+      ansible.builtin.fail:
+        msg: "HCLOUD_API_TOKEN env var not set"
+      when: hcloud_api_token | length == 0
+      tags: always
+
+    - name: "hcloud_lb | Add service: write (port {{ write_port }} -> HAProxy)"
+      hetzner.hcloud.load_balancer_service:
+        api_token: "{{ hcloud_api_token }}"
+        load_balancer: "{{ primary_lb_name }}"
+        listen_port: "{{ write_port }}"
+        destination_port: "{{ write_port }}"
+        protocol: tcp
+        proxyprotocol: true
+        health_check:
+          protocol: http
+          port: "{{ patroni_health_port }}"
+          interval: 5
+          timeout: 3
+          retries: 3
+          http:
+            path: /primary
+            status_codes: ["200"]
+        state: present
+      tags: hcloud_lb
+
+    - name: "hcloud_lb | Add service: read (port {{ read_port }} -> HAProxy)"
+      hetzner.hcloud.load_balancer_service:
+        api_token: "{{ hcloud_api_token }}"
+        load_balancer: "{{ primary_lb_name }}"
+        listen_port: "{{ read_port }}"
+        destination_port: "{{ read_port }}"
+        protocol: tcp
+        proxyprotocol: true
+        health_check:
+          protocol: http
+          port: "{{ patroni_health_port }}"
+          interval: 5
+          timeout: 3
+          retries: 3
+          http:
+            path: /replica
+            status_codes: ["200"]
+        state: present
+      tags: hcloud_lb
+
+    - name: "hcloud_lb | Add service: cached_read (port {{ cached_read_port }} -> HAProxy)"
+      hetzner.hcloud.load_balancer_service:
+        api_token: "{{ hcloud_api_token }}"
+        load_balancer: "{{ primary_lb_name }}"
+        listen_port: "{{ cached_read_port }}"
+        destination_port: "{{ cached_read_port }}"
+        protocol: tcp
+        proxyprotocol: true
+        health_check:
+          protocol: tcp
+          port: "{{ cached_read_port }}"
+          interval: 10
+          timeout: 5
+          retries: 3
+        state: present
+      tags: hcloud_lb
+
+    - name: hcloud_lb | Remove default 5432 service from primary LB (now handled by HAProxy)
+      hetzner.hcloud.load_balancer_service:
+        api_token: "{{ hcloud_api_token }}"
+        load_balancer: "{{ primary_lb_name }}"
+        listen_port: 5432
+        state: absent
+      tags: hcloud_lb

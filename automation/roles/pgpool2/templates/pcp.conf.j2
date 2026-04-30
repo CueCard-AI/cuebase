@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+# pgpool PCP control protocol auth — username:md5(password)
+# Format: username:md5password
+{% if pgpool2_pcp_user is defined and pgpool2_pcp_password_md5 is defined %}
+{{ pgpool2_pcp_user }}:{{ pgpool2_pcp_password_md5 }}
+{% endif %}

@@ -1,0 +1,31 @@
+---
+# Custom HAProxy frontends for the CueCard stack.
+# Replaces (or supplements) autobase's stock HAProxy: same software, different
+# config — three frontends fronting Patroni-aware routing + cached reads.
+
+haproxy_custom_install: false # set true via playbook
+
+# Listener ports (match staging)
+haproxy_custom_write_port: 6433 # writes -> primary (Patroni-elected)
+haproxy_custom_read_port: 6434 # reads  -> all nodes (round-robin, replica-only)
+haproxy_custom_cached_read_port: 6435 # cached reads -> single pgpool instance
+
+# Cached-read pinning: by default, the third node in postgres_cluster
+# (i.e. replica_2 in stage's topology). Override per-cluster as needed.
+haproxy_custom_cached_read_node: "{{ groups['postgres_cluster'][2] | default(groups['postgres_cluster'][-1]) }}"
+haproxy_custom_pgpool_port: "{{ pgpool2_port | default(6431) }}"
+
+# Backend health checks (Patroni REST API)
+haproxy_custom_patroni_port: "{{ patroni_restapi_port | default(8008) }}"
+haproxy_custom_check_interval: 5s
+haproxy_custom_check_fall: 3
+haproxy_custom_check_rise: 2
+
+# Timeouts (match staging)
+haproxy_custom_timeout_connect: 10s
+haproxy_custom_timeout_client: 30m
+haproxy_custom_timeout_server: 30m
+
+# accept-proxy: Hetzner LB sends PROXY protocol; flip off if you front-end
+# HAProxy directly without a cloud LB.
+haproxy_custom_accept_proxy: true
