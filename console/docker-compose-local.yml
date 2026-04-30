@@ -9,7 +9,7 @@ services:
       - autobase
 
   autobase-console-api:
-    image: autobase/console_api:latest
+    image: autobase/console_api:2.7.1
     container_name: autobase-console-api
     restart: unless-stopped
     ports:
@@ -28,7 +28,7 @@ services:
       - autobase
 
   autobase-console-ui:
-    image: autobase/console_ui:latest
+    image: autobase/console_ui:2.7.1
     container_name: autobase-console-ui
     restart: unless-stopped
     ports:
@@ -40,7 +40,7 @@ services:
       - autobase
 
   autobase-console-db:
-    image: autobase/console_db:latest
+    image: autobase/console_db:2.7.1
     container_name: autobase-console-db
     restart: unless-stopped
     volumes:
