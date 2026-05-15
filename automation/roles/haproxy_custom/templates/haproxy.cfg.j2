@@ -34,7 +34,7 @@ backend postgres_write_backend
     option httpchk GET /primary
     http-check expect status 200
 {% for host in groups['postgres_cluster'] %}
-    server {{ hostvars[host].hostname | default(host) }} {{ host }}:5432 check port {{ haproxy_custom_patroni_port }} inter {{ haproxy_custom_check_interval }} fall {{ haproxy_custom_check_fall }} rise {{ haproxy_custom_check_rise }}
+    server {{ hostvars[host].hostname | default(host) }} {{ host }}:5432 check check-ssl verify none port {{ haproxy_custom_patroni_port }} inter {{ haproxy_custom_check_interval }} fall {{ haproxy_custom_check_fall }} rise {{ haproxy_custom_check_rise }}
 {% endfor %}
 
 #------------------------------------------------------------------------------
@@ -51,7 +51,7 @@ backend postgres_read_backend
     http-check expect status 200
     balance roundrobin
 {% for host in groups['postgres_cluster'] %}
-    server {{ hostvars[host].hostname | default(host) }} {{ host }}:5432 check port {{ haproxy_custom_patroni_port }} inter {{ haproxy_custom_check_interval }} fall {{ haproxy_custom_check_fall }} rise {{ haproxy_custom_check_rise }}
+    server {{ hostvars[host].hostname | default(host) }} {{ host }}:5432 check check-ssl verify none port {{ haproxy_custom_patroni_port }} inter {{ haproxy_custom_check_interval }} fall {{ haproxy_custom_check_fall }} rise {{ haproxy_custom_check_rise }}
 {% endfor %}
 
 #------------------------------------------------------------------------------

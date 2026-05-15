@@ -25,27 +25,33 @@
     - { path: "{{ pgpool2_cache_oiddir }}", mode: "0755" }
   tags: pgpool2, custom_stack
 
-- name: pgpool2 | Determine current Patroni leader
-  ansible.builtin.uri:
-    url: "http://{{ patroni_restapi_connect_addr | default(inventory_hostname) }}:{{ patroni_restapi_port | default('8008') }}/leader"
-    status_code: [200, 503]
-  register: patroni_local_status
-  changed_when: false
-  failed_when: false
-  tags: pgpool2, custom_stack
-
-- name: pgpool2 | Build "primary" group from Patroni leader
-  ansible.builtin.add_host:
-    name: "{{ item }}"
-    groups: pgpool_primary
-  when: hostvars[item].patroni_local_status.status | default(0) == 200
-  loop: "{{ groups['postgres_cluster'] }}"
-  changed_when: false
-  tags: pgpool2, custom_stack
-
-- name: pgpool2 | Discover leader IP
+- name: pgpool2 | Set current_leader_ip if not already provided
+  # If invoked from the custom_stack playbook, cluster_leader_ip is already
+  # set by the pre_tasks; honour that. Otherwise fall back to patronictl.
   ansible.builtin.set_fact:
-    current_leader_ip: "{{ groups['pgpool_primary'][0] | default(groups['postgres_cluster'][0]) }}"
+    current_leader_ip: "{{ cluster_leader_ip }}"
+  when: cluster_leader_ip is defined and current_leader_ip is not defined
+  tags: pgpool2, custom_stack
+
+- name: pgpool2 | Discover leader via patronictl (standalone fallback)
+  ansible.builtin.command:
+    cmd: patronictl -c /etc/patroni/patroni.yml list -f json
+  register: pgpool2_patronictl
+  changed_when: false
+  when: current_leader_ip is not defined
+  tags: pgpool2, custom_stack
+
+- name: pgpool2 | Set current_leader_ip from patronictl
+  ansible.builtin.set_fact:
+    current_leader_ip: >-
+      {{
+        (pgpool2_patronictl.stdout | from_json
+          | selectattr('Role', 'equalto', 'Leader')
+          | map(attribute='Host')
+          | first
+        )
+      }}
+  when: current_leader_ip is not defined
   tags: pgpool2, custom_stack
 
 - name: pgpool2 | Render pgpool.conf
@@ -79,21 +85,19 @@
   notify: reload pgpool2
   tags: pgpool2, custom_stack
 
-- name: pgpool2 | Generate pool_passwd from PG users
-  # pgpool's pg_md5 generates AES-encrypted entries usable when
-  # password_encryption = scram-sha-256. We seed it with the superuser
-  # so health checks and admin connections work.
-  ansible.builtin.shell: |
-    set -e
-    : > /etc/pgpool2/pool_passwd
-    chmod 0600 /etc/pgpool2/pool_passwd
-    chown postgres:postgres /etc/pgpool2/pool_passwd
-    pg_md5 -m -u {{ pgpool2_health_check_user | quote }} \
-      --config-file=/etc/pgpool2/pgpool.conf \
-      {{ pgpool2_health_check_password | quote }}
-  args:
-    creates: /etc/pgpool2/pool_passwd
+- name: pgpool2 | Write pool_passwd (plaintext, TEXT-prefix per pgpool 4.x)
+  # Format: <user>:TEXT<plaintext-password>
+  # pgpool will use the plaintext to do SCRAM authentication with PG when
+  # the client connects with SCRAM. Acceptable for a sandbox; for prod
+  # use AES-encrypted entries with a POOL_KEY.
+  ansible.builtin.copy:
+    dest: /etc/pgpool2/pool_passwd
+    content: "{{ pgpool2_health_check_user }}:TEXT{{ pgpool2_health_check_password }}\n"
+    owner: postgres
+    group: postgres
+    mode: "0600"
   no_log: true
+  notify: reload pgpool2
   tags: pgpool2, custom_stack
 
 - name: pgpool2 | Install Patroni leader-tracking callback script

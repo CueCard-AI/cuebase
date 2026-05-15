@@ -11,10 +11,11 @@ listen_addresses = '{{ pgpool2_listen }}'
 port = {{ pgpool2_port }}
 socket_dir = '/var/run/postgresql'
 
-ssl = off
-ssl_cert = ''
-ssl_key = ''
-ssl_ca_cert = ''
+# TLS for client connections (clients connecting to pgpool with sslmode=require)
+ssl = {{ 'on' if pgpool2_ssl_enabled | default(true) else 'off' }}
+ssl_cert = '{{ pgpool2_ssl_cert | default("/etc/tls/server.crt") }}'
+ssl_key = '{{ pgpool2_ssl_key | default("/etc/tls/server.key") }}'
+ssl_ca_cert = '{{ pgpool2_ssl_ca | default("/etc/tls/ca.crt") }}'
 
 #------------------------------------------------------------------------------
 # POOLS

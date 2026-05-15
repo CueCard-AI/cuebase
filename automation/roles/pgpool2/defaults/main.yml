@@ -4,6 +4,12 @@ pgpool2_install: false # set true via playbook
 pgpool2_port: 6431 # 6431 to avoid conflict with PgBouncer (6432)
 pgpool2_listen: "*"
 
+# Client-side TLS (for psql sslmode=require). Reuses autobase-generated certs.
+pgpool2_ssl_enabled: true
+pgpool2_ssl_cert: "/etc/tls/server.crt"
+pgpool2_ssl_key: "/etc/tls/server.key"
+pgpool2_ssl_ca: "/etc/tls/ca.crt"
+
 # Connection pool sizing (matches staging)
 pgpool2_num_init_children: 25
 pgpool2_max_pool: 4

@@ -25,33 +25,52 @@
   environment: "{{ proxy_env | default({}) }}"
 
   pre_tasks:
-    - name: custom_stack | Validate Patroni cluster reachable
-      ansible.builtin.uri:
-        url: "{{ patroni_restapi_protocol | default('http') }}://{{ patroni_restapi_connect_addr | default(inventory_hostname) }}:{{ patroni_restapi_port | default('8008') }}/leader"
-        status_code: [200, 503]
-      register: patroni_local_status
+    # Hetzner Cloud Firewall blocks Patroni REST (8008) from outside the
+    # cluster network, so we discover the leader via SSH+patronictl on the
+    # first reachable node, then propagate the answer to all hosts.
+    - name: custom_stack | Discover Patroni leader via patronictl (run once)
+      ansible.builtin.command:
+        cmd: patronictl -c /etc/patroni/patroni.yml list -f json
+      register: patronictl_output
       changed_when: false
-      failed_when: false
+      run_once: true
       tags: always
 
-    - name: custom_stack | Determine cluster leader
+    - name: custom_stack | Parse patronictl output
       ansible.builtin.set_fact:
-        is_leader: "{{ patroni_local_status.status | default(0) == 200 }}"
-      tags: always
-
-    - name: custom_stack | Pick leader IP (run on first host only)
-      ansible.builtin.set_fact:
-        cluster_leader_ip: "{{ item }}"
-      when: hostvars[item].is_leader | default(false)
-      loop: "{{ groups['postgres_cluster'] }}"
+        cluster_leader_ip: >-
+          {{
+            (patronictl_output.stdout | from_json
+              | selectattr('Role', 'equalto', 'Leader')
+              | map(attribute='Host')
+              | first
+            )
+          }}
+        cluster_replica_ips: >-
+          {{
+            (patronictl_output.stdout | from_json
+              | rejectattr('Role', 'equalto', 'Leader')
+              | map(attribute='Host')
+              | list
+            )
+          }}
       run_once: true
       tags: always
 
     - name: custom_stack | Fail if no leader detected
       ansible.builtin.fail:
-        msg: "No Patroni leader found in cluster. Aborting custom_stack deploy."
-      when: cluster_leader_ip is not defined
+        msg: |
+          No Patroni leader found. patronictl output:
+          {{ patronictl_output.stdout | default('(empty)') }}
+      when: (cluster_leader_ip | default('')) | length == 0
       run_once: true
+      tags: always
+
+    - name: custom_stack | Broadcast leader IP to every host
+      ansible.builtin.set_fact:
+        cluster_leader_ip: "{{ hostvars[groups['postgres_cluster'][0]].cluster_leader_ip }}"
+        cluster_replica_ips: "{{ hostvars[groups['postgres_cluster'][0]].cluster_replica_ips }}"
+        is_leader: "{{ inventory_hostname == hostvars[groups['postgres_cluster'][0]].cluster_leader_ip }}"
       tags: always
 
     - name: custom_stack | Show topology
@@ -64,18 +83,18 @@
       tags: always
 
   roles:
-    - role: memcached
+    - role: vitabaks.autobase.memcached
       vars:
         memcached_install: true
       tags: memcached, custom_stack
 
-    - role: pgpool2
+    - role: vitabaks.autobase.pgpool2
       vars:
         pgpool2_install: true
         current_leader_ip: "{{ cluster_leader_ip }}"
       tags: pgpool2, custom_stack
 
-    - role: haproxy_custom
+    - role: vitabaks.autobase.haproxy_custom
       vars:
         haproxy_custom_install: true
       tags: haproxy_custom, custom_stack

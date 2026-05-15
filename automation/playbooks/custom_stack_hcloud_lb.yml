@@ -32,6 +32,12 @@
       when: hcloud_api_token | length == 0
       tags: always
 
+    # NOTE: Use TCP health checks against HAProxy port itself, NOT HTTP
+    # against Patroni 8008. HAProxy is the layer that does Patroni-aware
+    # routing internally, so the LB only needs to know "is HAProxy alive
+    # on this node?". Using HTTP checks for /primary and /replica caused
+    # all targets to be marked unhealthy because of how the per-target
+    # status is rolled up across roles.
     - name: "hcloud_lb | Add service: write (port {{ write_port }} -> HAProxy)"
       hetzner.hcloud.load_balancer_service:
         api_token: "{{ hcloud_api_token }}"
@@ -41,14 +47,11 @@
         protocol: tcp
         proxyprotocol: true
         health_check:
-          protocol: http
-          port: "{{ patroni_health_port }}"
-          interval: 5
-          timeout: 3
+          protocol: tcp
+          port: "{{ write_port }}"
+          interval: 10
+          timeout: 5
           retries: 3
-          http:
-            path: /primary
-            status_codes: ["200"]
         state: present
       tags: hcloud_lb
 
@@ -61,14 +64,11 @@
         protocol: tcp
         proxyprotocol: true
         health_check:
-          protocol: http
-          port: "{{ patroni_health_port }}"
-          interval: 5
-          timeout: 3
+          protocol: tcp
+          port: "{{ read_port }}"
+          interval: 10
+          timeout: 5
           retries: 3
-          http:
-            path: /replica
-            status_codes: ["200"]
         state: present
       tags: hcloud_lb
 
